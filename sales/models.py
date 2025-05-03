@@ -14,13 +14,33 @@ class Client(models.Model):
         return self.name
 
 class SalesOrder(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
     employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sales_orders')
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='sales_orders')
     sale_date = models.DateField(auto_now_add=True)
+    
+    discount = models.DecimalField(  # ✅ خصم
+        max_digits=10, 
+        decimal_places=2, 
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+    
     total_amount = models.DecimalField(
         max_digits=10, 
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))]
+    )
+
+    status = models.CharField(  # ✅ حالة
+        max_length=20, 
+        choices=STATUS_CHOICES, 
+        default='pending'
     )
 
     def __str__(self):

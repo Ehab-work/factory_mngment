@@ -13,7 +13,17 @@ class ProductionOrder(models.Model):
     ]
     
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='production_orders')
+    
+    # ✅ جديد: مشرف الإنتاج
+    supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='supervised_production_orders'
+    )
+    
     quantity = models.DecimalField(
         max_digits=10, 
         decimal_places=2,

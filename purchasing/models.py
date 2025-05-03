@@ -21,15 +21,34 @@ class PurchaseOrder(models.Model):
         ('completed', 'Completed'),
     ]
     
-    employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='purchase_orders')
-    supplier = models.ForeignKey(Supplier, on_delete=models.CASCADE, related_name='purchase_orders')
+    employee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='purchase_orders'
+    )
+    supplier = models.ForeignKey(
+        Supplier, 
+        on_delete=models.CASCADE, 
+        related_name='purchase_orders'
+    )
     order_date = models.DateField(auto_now_add=True)
     total_amount = models.DecimalField(
         max_digits=10, 
         decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.00'))]
+        validators=[MinValueValidator(Decimal('0.00'))],
+        default=0.00
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # ✅ جديد - الموافقة
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='approved_purchase_orders'
+    )
+    approved_date = models.DateField(null=True, blank=True)  # ✅ جديد
 
     def __str__(self):
         return f"Purchase Order #{self.id} - {self.supplier.name}"
@@ -47,6 +66,9 @@ class PurchaseInvoiceDetail(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.01'))]
     )
+
+    def get_line_total(self):
+        return self.quantity * self.unit_price
 
     def __str__(self):
         return f"Invoice Detail for Order #{self.order.id}, Material: {self.raw_material.name}"

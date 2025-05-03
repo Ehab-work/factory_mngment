@@ -1,14 +1,18 @@
 from rest_framework import generics, permissions, viewsets
-from .models import User
+#from .models import User
+from django.contrib.auth import get_user_model
+User = get_user_model()
 from .serializers import UserSerializer, RegisterSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .permissions import IsAdmin
 
+
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
@@ -16,16 +20,23 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['user'] = UserSerializer(self.user).data
         return data
 
+
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    
+
     def get_permissions(self):
+        permission_classes = [permissions.IsAuthenticated]
+
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [IsAdmin]
-        else:
-            permission_classes = [permissions.IsAuthenticated]
+            user = self.request.user
+            if user.is_authenticated and getattr(user, 'role', None) == 'admin':
+                permission_classes = [IsAdmin]
+            else:
+                permission_classes = [permissions.IsAuthenticated]
+
         return [permission() for permission in permission_classes]
