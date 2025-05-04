@@ -16,18 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from production.views import ProductionOrderViewSet, TaskViewSet, ProductionConsumptionViewSet
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
-
-
-router = DefaultRouter()
-router.register(r'production_orders', ProductionOrderViewSet)
-router.register(r'tasks', TaskViewSet)
-router.register(r'consumption', ProductionConsumptionViewSet)
-
-
-
 
 urlpatterns = [
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
@@ -39,7 +28,6 @@ urlpatterns = [
     path('api/sales/', include('sales.urls')),
     path('api/purchasing/', include('purchasing.urls')),
     path('api/production/', include('production.urls')),
-    path('api/', include(router.urls)),
 ]
 
 

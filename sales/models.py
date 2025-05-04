@@ -23,42 +23,46 @@ class SalesOrder(models.Model):
     employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sales_orders')
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='sales_orders')
     sale_date = models.DateField(auto_now_add=True)
-    
-    discount = models.DecimalField(  # ✅ خصم
-        max_digits=10, 
-        decimal_places=2, 
+    discount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
         default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0.00'))]
     )
-    
     total_amount = models.DecimalField(
-        max_digits=10, 
+        max_digits=10,
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
-
-    status = models.CharField(  # ✅ حالة
-        max_length=20, 
-        choices=STATUS_CHOICES, 
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
         default='pending'
     )
 
     def __str__(self):
         return f"Sales Order #{self.id} - {self.client.name}"
 
+    class Meta:
+        ordering = ['-sale_date']
+
 class SalesInvoiceDetail(models.Model):
     sale = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='details')
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.DecimalField(
-        max_digits=10, 
+        max_digits=10,
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.01'))]
     )
     unit_price = models.DecimalField(
-        max_digits=10, 
+        max_digits=10,
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.01'))]
     )
 
     def __str__(self):
         return f"Invoice Detail for Sale #{self.sale.id}, Product: {self.product.name}"
+
+    class Meta:
+        verbose_name = "Sales Invoice Detail"
+        verbose_name_plural = "Sales Invoice Details"
