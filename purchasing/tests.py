@@ -1,55 +1,27 @@
-from django.test import TestCase
-from django.contrib.auth import get_user_model
-from purchasing.models import Supplier, PurchaseOrder, PurchaseOrderItem
-from inventory.models import Product
-from datetime import date
+from django.urls import reverse
+from rest_framework.test import APITestCase
+from rest_framework import status
+from purchasing.models import PurchaseOrder, Supplier
+from users.models import User
+from rest_framework.authtoken.models import Token
 
-User = get_user_model()
-
-class PurchasingTests(TestCase):
+class PurchasingTests(APITestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='testuser', password='testpass')
-        self.supplier = Supplier.objects.create(
-            name='Test Supplier',
-            address='123 Test St',
-            phone_number='0123456789',
-            email='supplier@test.com'
-        )
-        self.product = Product.objects.create(
-            name='Test Product',
-            description='Test Description',
-            price=10.00,
-            quantity=100
-        )
-        self.purchase_order = PurchaseOrder.objects.create(
-            employee=self.user,
-            supplier=self.supplier,
-            order_date=date.today(),
-            total_amount=100.00,
-            status='pending'
-        )
-        self.item = PurchaseOrderItem.objects.create(
-            purchase_order=self.purchase_order,
-            product=self.product,
-            quantity=5,
-            unit_price=20.00
-        )
+        self.admin = User.objects.create_user(username='admin', password='admin123', role='admin')
+        self.officer = User.objects.create_user(username='officer', password='officer123', role='purchasing_officer')
+        self.admin_token = Token.objects.create(user=self.admin)
+        self.officer_token = Token.objects.create(user=self.officer)
+        self.supplier = Supplier.objects.create(name='Supplier A', contact_info='123456789')
 
-    def test_purchase_order_created(self):
+    def test_create_purchase_order_as_officer(self):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.officer_token.key)
+        url = reverse('purchase-orders-list')
+        data = {
+            'supplier': self.supplier.id,
+            'quantity': 10,
+            'status': 'pending',
+            'order_date': '2025-05-06'
+        }
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(PurchaseOrder.objects.count(), 1)
-        self.assertEqual(self.purchase_order.total_amount, 100.00)
-        self.assertEqual(self.purchase_order.status, 'pending')
-
-    def test_purchase_order_item(self):
-        self.assertEqual(PurchaseOrderItem.objects.count(), 1)
-        self.assertEqual(self.item.quantity, 5)
-        self.assertEqual(self.item.product, self.product)
-
-    def test_supplier_str(self):
-        self.assertEqual(str(self.supplier), 'Test Supplier')
-
-    def test_purchase_order_str(self):
-        self.assertIn(str(self.purchase_order.id), str(self.purchase_order))
-
-    def test_purchase_order_item_str(self):
-        self.assertIn(self.product.name, str(self.item))

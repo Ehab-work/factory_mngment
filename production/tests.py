@@ -1,44 +1,53 @@
-from django.test import TestCase
-from django.contrib.auth import get_user_model
-from rest_framework.test import APIClient
+from django.urls import reverse
+from rest_framework.test import APITestCase
 from rest_framework import status
-from .models import ProductionOrder, Task
+from production.models import ProductionOrder, ProductionTask
+from inventory.models import Product
+from users.models import User
+from django.utils import timezone
+from rest_framework.authtoken.models import Token
 
-User = get_user_model()
-
-class ProductionTests(TestCase):
+class ProductionTests(APITestCase):
     def setUp(self):
-        self.client = APIClient()
-        self.admin = User.objects.create_user(username='admin', password='pass', role='admin')
-        self.worker = User.objects.create_user(username='worker', password='pass', role='worker')
-        self.supervisor = User.objects.create_user(username='supervisor', password='pass', role='supervisor')
+        self.admin = User.objects.create_user(username='admin', password='admin123', role='admin')
+        self.supervisor = User.objects.create_user(username='supervisor', password='super123', role='production_supervisor')
+        self.worker = User.objects.create_user(username='worker', password='worker123', role='worker')
+        self.admin_token = Token.objects.create(user=self.admin)
+        self.supervisor_token = Token.objects.create(user=self.supervisor)
+        self.worker_token = Token.objects.create(user=self.worker)
+        self.product = Product.objects.create(name='Product A', price=100, stock=50)
 
-        self.order = ProductionOrder.objects.create(name='Test Order', supervisor=self.supervisor)
-        self.task = Task.objects.create(order=self.order, assigned_to=self.worker, description='Test Task')
-
-    def test_admin_can_create_order(self):
-        self.client.force_authenticate(user=self.admin)
-        response = self.client.post('/api/production/orders/', {
-            'name': 'New Order',
-            'supervisor': self.supervisor.id
-        })
+    def test_create_production_order_as_supervisor(self):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.supervisor_token.key)
+        url = reverse('production-orders-list')
+        data = {
+            'product': self.product.id,
+            'quantity': '20.00',
+            'status': 'pending',
+            'expected_end_date': '2025-05-15'
+        }
+        response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ProductionOrder.objects.count(), 1)
 
-    def test_worker_can_only_view_own_tasks(self):
-        self.client.force_authenticate(user=self.worker)
-        response = self.client.get('/api/production/tasks/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        for task in response.data:
-            self.assertEqual(task['assigned_to'], self.worker.id)
-
-    def test_worker_cannot_delete_task(self):
-        self.client.force_authenticate(user=self.worker)
-        response = self.client.delete(f'/api/production/tasks/{self.task.id}/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_supervisor_can_update_task(self):
-        self.client.force_authenticate(user=self.supervisor)
-        response = self.client.patch(f'/api/production/tasks/{self.task.id}/', {'status': 'completed'})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.task.refresh_from_db()
-        self.assertEqual(self.task.status, 'completed')
+    def test_create_production_task_as_supervisor(self):
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.supervisor_token.key)
+        order = ProductionOrder.objects.create(
+            product=self.product,
+            quantity='20.00',
+            status='pending',
+            employee=self.supervisor,
+            expected_end_date=timezone.now() + timezone.timedelta(days=5)
+        )
+        url = reverse('tasks-list')
+        data = {
+            'production_order': order.id,
+            'name': 'Task 1',
+            'description': 'Test task description',
+            'assigned_to': self.worker.id,
+            'status': 'pending',
+            'end_date': '2025-05-10T12:00:00Z'
+        }
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ProductionTask.objects.count(), 1)

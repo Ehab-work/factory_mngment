@@ -1,52 +1,42 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
-from decimal import Decimal
+from django.utils import timezone
 
 class User(AbstractUser):
     ROLE_CHOICES = [
         ('admin', 'Admin'),
+        ('production_supervisor', 'Production Supervisor'),
+        ('worker', 'Worker'),
+        ('store_keeper', 'Store Keeper'),
         ('sales_rep', 'Sales Representative'),
         ('sales_supervisor', 'Sales Supervisor'),
         ('purchasing_officer', 'Purchasing Officer'),
-        ('worker', 'Worker'),
-        ('production_supervisor', 'Production Supervisor'),
-        ('store_keeper', 'Store Keeper'),
     ]
 
-    role = models.CharField(max_length=30, choices=ROLE_CHOICES)
-    address = models.CharField(max_length=255, blank=True, null=True)
-    salary = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
-        null=True, 
-        blank=True,
-        validators=[MinValueValidator(Decimal('0.00'))]
-    )
-    age = models.IntegerField(
-        null=True, 
-        blank=True,
-        validators=[MinValueValidator(18), MaxValueValidator(70)]
-    )
-    job_title = models.CharField(max_length=255, blank=True, null=True)
-    phone_number = models.CharField(
-        max_length=20, 
-        blank=True, 
-        null=True,
-        validators=[RegexValidator(r'^\+?1?\d{9,15}$', message="Phone number must be entered in format: '+999999999'. Up to 15 digits allowed.")]
-    )
-    national_id = models.CharField(
-        max_length=14, 
-        blank=True, 
-        null=True, 
-        unique=True,
-        validators=[RegexValidator(r'^\d{14}$', message="National ID must be exactly 14 digits.")]
-    )
+    role = models.CharField(max_length=50, choices=ROLE_CHOICES, default='worker')
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+    last_activity = models.DateTimeField(default=timezone.now)
 
     def __str__(self):
-        return f"{self.username} - {self.get_role_display()}"
-        
-    class Meta:
-        ordering = ['username']
+        return f"{self.get_full_name()} ({self.role})"
 
-    
+class Notification(models.Model):
+    TYPE_CHOICES = [
+        ('order_status', 'Order Status'),
+        ('task_assignment', 'Task Assignment'),
+        ('production_status', 'Production Status'),
+        ('account_status', 'Account Status'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_notifications')
+    type = models.CharField(max_length=50, choices=TYPE_CHOICES)
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    reference_id = models.PositiveIntegerField(blank=True, null=True)
+    reference_type = models.CharField(max_length=50, blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.title} for {self.user.username}"

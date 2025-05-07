@@ -1,83 +1,71 @@
-from rest_framework import viewsets, permissions, generics, status
+from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import get_user_model
-from .serializers import (
-    UserSerializer, UserProfileSerializer, UserTokenSerializer,
-    UserRoleSerializer, ChangePasswordSerializer, PublicUserSerializer
-)
-from .permissions import IsAdmin, IsOwnerOrAdmin
-from rest_framework.permissions import IsAuthenticated
-from django.utils.timezone import now
-from datetime import timedelta
-
-User = get_user_model()
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
+from django.utils import timezone
+from .models import User, Notification
+from .serializers import UserSerializer, NotificationSerializer
+from .permissions import IsAdmin, IsUserOwner
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
-    permission_classes = [IsAuthenticated, IsAdmin]
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['username', 'first_name', 'last_name']
+    ordering_fields = ['username', 'date_joined']
 
-    def get_serializer_class(self):
-        if self.request.user.role == 'admin':
-            return UserSerializer
-        return PublicUserSerializer
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [permissions.IsAuthenticated(), IsAdmin()]
+        elif self.action in ['retrieve', 'me']:
+            return [permissions.IsAuthenticated(), IsUserOwner()]
+        return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
-        if self.request.user.role == 'admin':
+        if self.request.user.is_superuser:
             return User.objects.all()
         return User.objects.filter(id=self.request.user.id)
 
-class UserProfileView(generics.RetrieveUpdateAPIView):
-    serializer_class = UserProfileSerializer
-    permission_classes = [IsAuthenticated]
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def me(self, request):
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
 
-    def get_object(self):
-        return self.request.user
+    @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
+    def deactivate(self, request, pk=None):
+        user = self.get_object()
+        if user.is_active:
+            user.is_active = False
+            user.save()
+            Notification.objects.create(
+                user=user,
+                type='account_status',
+                title='Account Deactivated',
+                message='Your account has been deactivated by an admin.'
+            )
+            return Response({'status': 'deactivated'})
+        return Response({'status': 'already deactivated'}, status=status.HTTP_400_BAD_REQUEST)
 
-class UserLoginView(TokenObtainPairView):
-    serializer_class = UserTokenSerializer
+class NotificationViewSet(viewsets.ModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['type', 'is_read']
+    ordering_fields = ['created_at']
 
-class UserLogoutView(generics.GenericAPIView):
-    permission_classes = [IsAuthenticated]
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user)
 
-    def post(self, request):
-        try:
-            refresh_token = request.data['refresh']
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-            return Response(status=status.HTTP_205_RESET_CONTENT)
-        except Exception as e:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
-class ChangeUserRoleView(generics.UpdateAPIView):
-    queryset = User.objects.all()
-    serializer_class = UserRoleSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance == request.user:
-            return Response({"detail": "لا يمكنك تغيير دورك الخاص."}, status=status.HTTP_403_FORBIDDEN)
-        return super().update(request, *args, **kwargs)
-
-class ChangePasswordView(generics.UpdateAPIView):
-    queryset = User.objects.all()
-    serializer_class = ChangePasswordSerializer
-    permission_classes = [IsAuthenticated, IsOwnerOrAdmin]
-
-    def get_object(self):
-        return self.request.user
-
-class UserStatsView(generics.GenericAPIView):
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-    def get(self, request):
-        last_30_days = now() - timedelta(days=30)
-        total_users = User.objects.count()
-        active_recently = User.objects.filter(last_login__gte=last_30_days).count()
-        return Response({
-            "total_users": total_users,
-            "active_last_30_days": active_recently
-        })
+    @action(detail=True, methods=['post'])
+    def mark_as_read(self, request, pk=None):
+        notification = self.get_object()
+        if notification.user == request.user and not notification.is_read:
+            notification.is_read = True
+            notification.save()
+            return Response({'status': 'marked as read'})
+        return Response({'status': 'not allowed'}, status=status.HTTP_400_BAD_REQUEST)

@@ -1,14 +1,15 @@
 from django.db import models
 from django.conf import settings
-from inventory.models import Product
 from django.core.validators import MinValueValidator
+from django.utils import timezone
 from decimal import Decimal
 
 class Client(models.Model):
-    name = models.CharField(max_length=255)
-    address = models.CharField(max_length=255)
-    phone_number = models.CharField(max_length=255)
-    email = models.EmailField()
+    name = models.CharField(max_length=100)
+    address = models.TextField()
+    phone_number = models.CharField(max_length=20)
+    email = models.EmailField(blank=True, null=True)
+    contact_info = models.CharField(max_length=255, blank=True, null=True)  # أضفنا contact_info
 
     def __str__(self):
         return self.name
@@ -16,39 +17,31 @@ class Client(models.Model):
 class SalesOrder(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
-        ('completed', 'Completed'),
+        ('confirmed', 'Confirmed'),
+        ('processing', 'Processing'),
+        ('shipped', 'Shipped'),
+        ('delivered', 'Delivered'),
         ('cancelled', 'Cancelled'),
     ]
 
-    employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sales_orders')
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='sales_orders')
-    sale_date = models.DateField(auto_now_add=True)
-    discount = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=Decimal('0.00'),
-        validators=[MinValueValidator(Decimal('0.00'))]
-    )
+    employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sales_sales_orders')
+    order_date = models.DateField(default=timezone.now)
     total_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
+        default=0,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='pending'
-    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    notes = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return f"Sales Order #{self.id} - {self.client.name}"
-
-    class Meta:
-        ordering = ['-sale_date']
+        return f"SO-{self.id} to {self.client.name}"
 
 class SalesInvoiceDetail(models.Model):
-    sale = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='details')
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    sales_order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='sales_invoice_details', null=True)
+    product = models.ForeignKey('inventory.Product', on_delete=models.CASCADE, related_name='sales_sales_invoice_details')
     quantity = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -57,12 +50,8 @@ class SalesInvoiceDetail(models.Model):
     unit_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.01'))]
+        validators=[MinValueValidator(Decimal('0.00'))]
     )
 
     def __str__(self):
-        return f"Invoice Detail for Sale #{self.sale.id}, Product: {self.product.name}"
-
-    class Meta:
-        verbose_name = "Sales Invoice Detail"
-        verbose_name_plural = "Sales Invoice Details"
+        return f"SO-{self.sales_order.id} - {self.product.name}"

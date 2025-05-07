@@ -1,9 +1,9 @@
 from rest_framework import serializers
-from .models import RawMaterial, Product, Supplier, InventoryMovement, RatioOfProduct, MaterialRequest, Unit
+from .models import Product, RawMaterial, RecipeOfProduct, InventoryMovement
 
-class UnitSerializer(serializers.ModelSerializer):
+class ProductSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Unit
+        model = Product
         fields = '__all__'
 
 class RawMaterialSerializer(serializers.ModelSerializer):
@@ -11,27 +11,20 @@ class RawMaterialSerializer(serializers.ModelSerializer):
         model = RawMaterial
         fields = '__all__'
 
-class ProductSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Product
-        fields = '__all__'
+class RecipeOfProductSerializer(serializers.ModelSerializer):
+    product_name = serializers.ReadOnlyField(source='product.name')
+    raw_material_name = serializers.ReadOnlyField(source='raw_material.name')
 
-class SupplierSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Supplier
+        model = RecipeOfProduct
         fields = '__all__'
 
 class InventoryMovementSerializer(serializers.ModelSerializer):
+    product_name = serializers.ReadOnlyField(source='product.name')
+    raw_material_name = serializers.ReadOnlyField(source='raw_material.name')
+    moved_by_name = serializers.ReadOnlyField(source='moved_by.get_full_name')
+
     class Meta:
         model = InventoryMovement
         fields = '__all__'
-
-class RatioOfProductSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = RatioOfProduct
-        fields = '__all__'
-
-class MaterialRequestSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MaterialRequest
-        fields = '__all__'
+        read_only_fields = ['moved_by', 'move_date']

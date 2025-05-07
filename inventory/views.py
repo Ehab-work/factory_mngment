@@ -1,97 +1,68 @@
-from rest_framework import viewsets, permissions, filters
-from rest_framework.decorators import action
-from rest_framework.response import Response
+from rest_framework import viewsets, permissions
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import (
-    RawMaterial, Product, Supplier, InventoryMovement,
-    RatioOfProduct, MaterialRequest, Unit
-)
-from .serializers import (
-    RawMaterialSerializer, ProductSerializer, SupplierSerializer,
-    InventoryMovementSerializer, RatioOfProductSerializer,
-    MaterialRequestSerializer, UnitSerializer
-)
+from rest_framework import filters
+from django.db.models import Sum
+from .models import Product, RawMaterial, RecipeOfProduct, InventoryMovement
+from .serializers import ProductSerializer, RawMaterialSerializer, RecipeOfProductSerializer, InventoryMovementSerializer
+from users.permissions import IsAdmin
+from purchasing.permissions import IsStoreKeeper
 
-class IsWorkerOrReadOnly(permissions.BasePermission):
+class CustomPermission(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated
-
-class UnitViewSet(viewsets.ModelViewSet):
-    queryset = Unit.objects.all()
-    serializer_class = UnitSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-class RawMaterialViewSet(viewsets.ModelViewSet):
-    queryset = RawMaterial.objects.all()
-    serializer_class = RawMaterialSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['unit']
-    search_fields = ['name']
-    ordering_fields = ['quantity']
+        return (IsAdmin().has_permission(request, view) or 
+                IsStoreKeeper().has_permission(request, view))
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['unit', 'type']
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name']
-    ordering_fields = ['quantity']
+    ordering_fields = ['name', 'price', 'quantity']
 
-class SupplierViewSet(viewsets.ModelViewSet):
-    queryset = Supplier.objects.all()
-    serializer_class = SupplierSerializer
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [permissions.IsAuthenticated(), CustomPermission()]
+        return [permissions.IsAuthenticated()]
+
+class RawMaterialViewSet(viewsets.ModelViewSet):
+    queryset = RawMaterial.objects.all()
+    serializer_class = RawMaterialSerializer
     permission_classes = [permissions.IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['name']
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name']
-    ordering_fields = ['name']
+    ordering_fields = ['name', 'quantity', 'avg_price']
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [permissions.IsAuthenticated(), CustomPermission()]
+        return [permissions.IsAuthenticated()]
+
+class RecipeOfProductViewSet(viewsets.ModelViewSet):
+    queryset = RecipeOfProduct.objects.all().select_related('product', 'raw_material')
+    serializer_class = RecipeOfProductSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['product', 'raw_material']
+    search_fields = ['product__name', 'raw_material__name']
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [permissions.IsAuthenticated(), IsAdmin()]
+        return [permissions.IsAuthenticated()]
 
 class InventoryMovementViewSet(viewsets.ModelViewSet):
-    queryset = InventoryMovement.objects.all()
+    queryset = InventoryMovement.objects.all().select_related('product', 'raw_material', 'moved_by')
     serializer_class = InventoryMovementSerializer
     permission_classes = [permissions.IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['material_type']
-    ordering_fields = ['timestamp']
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['move_type', 'reference_type']
+    ordering_fields = ['move_date']
 
-class RatioOfProductViewSet(viewsets.ModelViewSet):
-    queryset = RatioOfProduct.objects.all()
-    serializer_class = RatioOfProductSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-class MaterialRequestViewSet(viewsets.ModelViewSet):
-    queryset = MaterialRequest.objects.all()
-    serializer_class = MaterialRequestSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        user = self.request.user
-        if hasattr(user, 'is_worker') and user.is_worker:
-            return self.queryset.filter(requested_by=user)
-        return self.queryset
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [permissions.IsAuthenticated(), IsStoreKeeper()]
+        return [permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
-        serializer.save(requested_by=self.request.user)
-
-    @action(detail=True, methods=['post'])
-    def approve(self, request, pk=None):
-        instance = self.get_object()
-        instance.status = 'approved'
-        instance.save()
-        return Response({'status': 'approved'})
-
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        instance = self.get_object()
-        instance.status = 'rejected'
-        instance.save()
-        return Response({'status': 'rejected'})
-
-    @action(detail=True, methods=['post'])
-    def complete(self, request, pk=None):
-        instance = self.get_object()
-        instance.status = 'completed'
-        instance.save()
-        return Response({'status': 'completed'})
+        serializer.save(moved_by=self.request.user)

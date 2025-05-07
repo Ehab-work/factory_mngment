@@ -1,75 +1,65 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.response import Response
+from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
-from django.shortcuts import get_object_or_404
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
 from .models import Supplier, PurchaseOrder, PurchaseInvoiceDetail
 from .serializers import SupplierSerializer, PurchaseOrderSerializer, PurchaseInvoiceDetailSerializer
-from users.permissions import IsAdmin, IsStoreKeeper
-from rest_framework.permissions import IsAuthenticated
-from inventory.models import RawMaterial, InventoryMovement
-from datetime import datetime
+from users.permissions import IsAdmin
+from purchasing.permissions import IsPurchasingOfficer, IsStoreKeeper
+
+class CustomPermission(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return (IsPurchasingOfficer().has_permission(request, view) or 
+                IsAdmin().has_permission(request, view))
 
 class SupplierViewSet(viewsets.ModelViewSet):
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
-
-class PurchaseOrderViewSet(viewsets.ModelViewSet):
-    queryset = PurchaseOrder.objects.all()
-    serializer_class = PurchaseOrderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'email']
+    ordering_fields = ['name']
 
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), IsAdmin()]
-        elif self.action in ['approve_order', 'reject_order', 'receive_materials']:
-            return [IsAuthenticated(), IsStoreKeeper()]
-        return [IsAuthenticated()]
+            return [permissions.IsAuthenticated(), CustomPermission()]
+        return [permissions.IsAuthenticated()]
 
-    @action(detail=True, methods=['post'])
-    def approve_order(self, request, pk=None):
+class PurchaseOrderViewSet(viewsets.ModelViewSet):
+    queryset = PurchaseOrder.objects.all().select_related('supplier', 'employee')
+    serializer_class = PurchaseOrderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['supplier', 'status']
+    ordering_fields = ['order_date', 'total_amount']
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return [permissions.IsAuthenticated(), CustomPermission()]
+        elif self.action == 'receive':
+            return [permissions.IsAuthenticated(), IsStoreKeeper()]
+        return [permissions.IsAuthenticated()]
+
+    @action(detail=True, methods=['post'], permission_classes=[IsStoreKeeper])
+    def receive(self, request, pk=None):
         order = self.get_object()
-        if order.status != 'pending':
-            return Response({"detail": "لا يمكن اعتماد أمر تم معالجته بالفعل."}, status=400)
-        order.status = 'approved'
-        order.approved_date = datetime.now()
-        order.save()
-        return Response({"detail": "تم اعتماد أمر الشراء."})
+        if order.status == 'pending':
+            order.status = 'received'
+            order.save()
+            return Response({'status': 'received'})
+        return Response({'status': 'not allowed'}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=True, methods=['post'])
-    def reject_order(self, request, pk=None):
-        order = self.get_object()
-        if order.status != 'pending':
-            return Response({"detail": "لا يمكن رفض أمر تم معالجته بالفعل."}, status=400)
-        order.status = 'rejected'
-        order.save()
-        return Response({"detail": "تم رفض أمر الشراء."})
-
-    @action(detail=True, methods=['post'])
-    def receive_materials(self, request, pk=None):
-        order = self.get_object()
-        if order.status != 'approved':
-            return Response({"detail": "لا يمكن استلام المواد قبل اعتماد الطلب."}, status=400)
-
-        details = PurchaseInvoiceDetail.objects.filter(purchase_order=order)
-        for detail in details:
-            material = detail.material
-            material.quantity_in_stock += detail.quantity
-            material.price_per_unit = detail.unit_price  # اختيارياً تحدّث السعر
-            material.save()
-
-            InventoryMovement.objects.create(
-                material=material,
-                movement_type='in',
-                quantity=detail.quantity,
-                related_order=order
-            )
-
-        order.status = 'received'
-        order.received_date = datetime.now()
-        order.save()
-        return Response({"detail": "تم استلام المواد وتحديث المخزون."})
+    def perform_create(self, serializer):
+        serializer.save(employee=self.request.user)
 
 class PurchaseInvoiceDetailViewSet(viewsets.ModelViewSet):
-    queryset = PurchaseInvoiceDetail.objects.all()
+    queryset = PurchaseInvoiceDetail.objects.all().select_related('purchase_order', 'product')
     serializer_class = PurchaseInvoiceDetailSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['purchase_order']
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [permissions.IsAuthenticated(), CustomPermission()]
+        return [permissions.IsAuthenticated()]
